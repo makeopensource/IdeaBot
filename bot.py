@@ -1,57 +1,92 @@
 import discord
-import sqlite3
+import json
+from dotenv import load_dotenv
+import os
 
-client = discord.Client()
-
-
-@client.event
-async def on_ready():
-    print('We have logged in as {0.user}'.format(client))
-    channel = client.get_channel(753275801360662640)
-    # await channel.send("Hello, I am Ideabot! I am here to log your ideas")
+load_dotenv()
+TOKEN = os.getenv('DISCORD_TOKEN')
+ADD_IDEA, REMOVE_IDEA = os.getenv('ADD_IDEA'), os.getenv('REMOVE_IDEA')
+ALL_IDEAS, CLEAR_IDEAS = os.getenv('ALL_IDEAS'), os.getenv('CLEAR_IDEAS')
 
 
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
+class MyClient(discord.Client):
+    async def on_ready(self):
+        print('Logged on as {0}!'.format(self.user))
 
-    if message.content.startswith('$ideas'):
-        conn = sqlite3.connect('ideas.db')
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS ideas
-                            (idea text)''')
-        retval = list(c.execute(f'''SELECT * FROM ideas'''))
-        ideas = [x[0] for x in retval]
-        await message.channel.send(ideas)
-        conn.commit()
-        conn.close()
+    async def on_message(self, message):
+        m = self.parse_message(message.content)
+        # if message.content.startswith('$') and m[1] == '':
+        #     await message.channel.send('invalid query')
 
-    elif message.content.startswith('$clear'):
-        conn = sqlite3.connect('ideas.db')
-        c = conn.cursor()
-        c.execute('''DROP TABLE IF EXISTS ideas''')
-        await message.channel.send('cleared')
-        conn.commit()
-        conn.close()
+        if m[0] == f'${ADD_IDEA}':
+            success = self.store_idea(m[1])
+            if success:
+                await message.channel.send(f'added {m[1]}')
+            else:
+                await message.channel.send(f'{m[1]} already exists')
 
-    elif message.content.startswith('$idea'):
-        content = ' '.join(message.content.split(' ')[1:])
-        conn = sqlite3.connect('ideas.db')
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS ideas
-                    (idea text)''')
-        print(content)
-        c.execute("SELECT EXISTS(SELECT 1 FROM ideas WHERE idea=?)", (content,))
-        exists = c.fetchone()[0]
-        print(exists)
-        if not exists:
-            c.execute(f'''INSERT INTO ideas VALUES(?)''', (content,))
-            conn.commit( )
-            conn.close( )
-            await message.channel.send("That's a pretty good idea!")
+        elif m[0] == f'${ALL_IDEAS}':
+            await message.channel.send(self.get_ideas())
+
+        elif m[0] == f'${REMOVE_IDEA}':
+            success = self.remove_idea(m[1])
+            if success:
+                await message.channel.send(f'removed {m[1]}')
+            else:
+                await message.channel.send(f'{m[1]} does not exist')
+
+        elif m[0] == f'${CLEAR_IDEAS}':
+            self.clear_ideas()
+            await message.channel.send('cleared all ideas')
+
+    def parse_message(self, message):
+        parts = message.split(' ')
+        header = parts[0]
+        content = ' '.join(parts[1:])
+        return [header, content]
+
+    # returns success/failure
+    def store_idea(self, idea):
+        json_file = open('data.json', 'r')
+        data = json.load(json_file)
+        if idea not in data:
+            data.append(idea)
+            json_file = open('data.json', 'w')
+            json.dump(data, json_file)
+            json_file.close()
+            return True
         else:
-            await message.channel.send("That idea was already taken!")
+            json_file.close()
+            return False
+
+    def get_ideas(self):
+        with open('data.json', 'r') as f:
+            data = json.load(f)
+            f.close()
+            return data
+
+    # returns success/failure
+    def remove_idea(self, idea):
+        f = open('data.json', 'r')
+        data = json.load(f)
+        if idea in data:
+            data.remove(idea)
+            f = open('data.json', 'w')
+            json.dump(data, f)
+            f.close()
+            return True
+        else:
+            f = open('data.json', 'w')
+            json.dump(data, f)
+            f.close()
+            return False
+
+    # for testing purposes only
+    def clear_ideas(self):
+        with open('data.json', 'w') as f:
+            json.dump([], f)
+            f.close()
 
 
-client.run('')
+client = MyClient()
+client.run(TOKEN)
