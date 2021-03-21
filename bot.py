@@ -7,13 +7,13 @@ from pymongo import MongoClient
 # initializers
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-address = f"mongodb+srv://emilkovacev:{DB_PASSWORD}@cluster0.aryp3.mongodb.net/ideas?retryWrites=true&w=majority"
+TICKER = os.getenv('CALL_SYMBOL')
+DB_ADDRESS = os.getenv('DB_ADDRESS')
 
 
 # custom exceptions
 class InvalidAccess(Exception):
-    """You do not have write permissions for this Idea"""
+    """You do not have write permissions for this idea"""
     pass
 
 
@@ -23,15 +23,25 @@ class MyClient(discord.Client):
 
     async def on_message(self, message):
         parsed = self.parse_message(message.content)
-        if parsed[0] == '$add' or parsed[0] == '$edit':
+
+        if parsed[0] == f'{TICKER}help':
+            embed = discord.Embed(title="Help")
+            embed.add_field(name="$add [idea], [author]", value="add an idea", inline=True)
+            embed.add_field(name="$edit [idea], [author]", value="edit an idea", inline=True)
+            embed.add_field(name="$remove [idea]", value="remove an idea (only available to idea author and admins)",inline=False)
+            await message.channel.send(embed=embed)
+        elif parsed[0] == f'{TICKER}add' or parsed[0] == f'{TICKER}edit':
             idea = parsed[1]
             author = parsed[2]
             self.insert_idea(idea, author, [], "", message.author.id)
             await message.channel.send(f'{message.author.nick} successfully {parsed[0][1:]}ed {idea}')
-        elif parsed[0] == '$all':
+
+        elif parsed[0] == f'{TICKER}all':
             return self.all_ideas()
-        elif parsed[0] == '$remove':
-            pass
+
+        elif parsed[0] == f'{TICKER}remove':
+            idea = parsed[1]
+            self.remove_idea(idea, message.author.id)
 
     @classmethod
     def parse_message(self, content):
@@ -40,7 +50,7 @@ class MyClient(discord.Client):
 
     @classmethod
     def insert_idea(self, idea, author, contributors, github, author_id):
-        with MongoClient(address) as db_client:
+        with MongoClient(DB_ADDRESS) as db_client:
             idea_db = db_client.test
             ideas = idea_db.ideas
             idea1 = {
@@ -61,10 +71,21 @@ class MyClient(discord.Client):
 
     @classmethod
     def all_ideas(self):
-        with MongoClient(address) as db_client:
+        with MongoClient(DB_ADDRESS) as db_client:
             idea_db = db_client.test
             ideas = idea_db.ideas
             return ideas.find()
+
+    @classmethod
+    def remove_idea(self, idea, author_id):
+        with MongoClient(DB_ADDRESS) as db_client:
+            idea_db = db_client.test
+            ideas = idea_db.ideas
+            existing = ideas.find_one({"idea": idea})
+            if existing is not None and existing["authorID"] == author_id:
+                ideas.remove({"idea": idea})
+            else:
+                raise InvalidAccess
 
 
 client = MyClient()
