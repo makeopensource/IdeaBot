@@ -1,12 +1,20 @@
 import discord
-import json
 from dotenv import load_dotenv
 import os
+from pymongo import MongoClient
 
+
+# initializers
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-ADD_IDEA, REMOVE_IDEA = os.getenv('ADD_IDEA'), os.getenv('REMOVE_IDEA')
-ALL_IDEAS, CLEAR_IDEAS = os.getenv('ALL_IDEAS'), os.getenv('CLEAR_IDEAS')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+address = f"mongodb+srv://emilkovacev:{DB_PASSWORD}@cluster0.aryp3.mongodb.net/ideas?retryWrites=true&w=majority"
+
+
+# custom exceptions
+class InvalidAccess(Exception):
+    """You do not have write permissions for this Idea"""
+    pass
 
 
 class MyClient(discord.Client):
@@ -14,78 +22,49 @@ class MyClient(discord.Client):
         print('Logged on as {0}!'.format(self.user))
 
     async def on_message(self, message):
-        m = self.parse_message(message.content)
-        # if message.content.startswith('$') and m[1] == '':
-        #     await message.channel.send('invalid query')
+        parsed = self.parse_message(message.content)
+        if parsed[0] == '$add' or parsed[0] == '$edit':
+            idea = parsed[1]
+            author = parsed[2]
+            self.insert_idea(idea, author, [], "", message.author.id)
+            await message.channel.send(f'{message.author.nick} successfully {parsed[0][1:]}ed {idea}')
+        elif parsed[0] == '$all':
+            return self.all_ideas()
+        elif parsed[0] == '$remove':
+            pass
 
-        if m[0] == f'${ADD_IDEA}':
-            success = self.store_idea(m[1])
-            if success:
-                await message.channel.send(f'added {m[1]}')
+    @classmethod
+    def parse_message(self, content):
+        content = content.replace(' ', ', ', 1)
+        return content.split(", ")
+
+    @classmethod
+    def insert_idea(self, idea, author, contributors, github, author_id):
+        with MongoClient(address) as db_client:
+            idea_db = db_client.test
+            ideas = idea_db.ideas
+            idea1 = {
+                "idea": idea,
+                "author": author,
+                "authorID": author_id,
+                "contributors": contributors,
+                "github": github
+            }
+
+            existing = ideas.find_one({"idea": idea})
+            if existing is not None and existing["authorID"] != author_id:
+                raise InvalidAccess
+            elif existing is not None:
+                ideas.replace_one({"idea": idea}, idea1)
             else:
-                await message.channel.send(f'{m[1]} already exists')
+                ideas.insert_one(idea1)
 
-        elif m[0] == f'${ALL_IDEAS}':
-            await message.channel.send(self.get_ideas())
-
-        elif m[0] == f'${REMOVE_IDEA}':
-            success = self.remove_idea(m[1])
-            if success:
-                await message.channel.send(f'removed {m[1]}')
-            else:
-                await message.channel.send(f'{m[1]} does not exist')
-
-        elif m[0] == f'${CLEAR_IDEAS}':
-            self.clear_ideas()
-            await message.channel.send('cleared all ideas')
-
-    def parse_message(self, message):
-        parts = message.split(' ')
-        header = parts[0]
-        content = ' '.join(parts[1:])
-        return [header, content]
-
-    # returns success/failure
-    def store_idea(self, idea):
-        json_file = open('data.json', 'r')
-        data = json.load(json_file)
-        if idea not in data:
-            data.append(idea)
-            json_file = open('data.json', 'w')
-            json.dump(data, json_file)
-            json_file.close()
-            return True
-        else:
-            json_file.close()
-            return False
-
-    def get_ideas(self):
-        with open('data.json', 'r') as f:
-            data = json.load(f)
-            f.close()
-            return data
-
-    # returns success/failure
-    def remove_idea(self, idea):
-        f = open('data.json', 'r')
-        data = json.load(f)
-        if idea in data:
-            data.remove(idea)
-            f = open('data.json', 'w')
-            json.dump(data, f)
-            f.close()
-            return True
-        else:
-            f = open('data.json', 'w')
-            json.dump(data, f)
-            f.close()
-            return False
-
-    # for testing purposes only
-    def clear_ideas(self):
-        with open('data.json', 'w') as f:
-            json.dump([], f)
-            f.close()
+    @classmethod
+    def all_ideas(self):
+        with MongoClient(address) as db_client:
+            idea_db = db_client.test
+            ideas = idea_db.ideas
+            return ideas.find()
 
 
 client = MyClient()
