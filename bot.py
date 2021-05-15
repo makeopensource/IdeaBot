@@ -62,7 +62,7 @@ def removeIdea(idea, author_id):
 # bot commands and initialization
 
 @bot.event
-async def on_ready():
+async def onReady():
     print("logged in as " + bot.user.name)
 
 @slash.slash(name="help",description="Help Command",guild_ids=GUILD_IDS)
