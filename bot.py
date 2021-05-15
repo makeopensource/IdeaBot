@@ -8,7 +8,6 @@ from pymongo import MongoClient
 # initializers
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-TICKER = os.getenv('CALL_SYMBOL')
 DB_ADDRESS = os.getenv('DB_ADDRESS')
 DESCRIPTION = os.getenv("DESCRIPTION")
 COMMAND_PREFIX = os.getenv("COMMAND_PREFIX")
