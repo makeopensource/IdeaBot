@@ -1,8 +1,7 @@
 # ideabot
-A bot for submitting and sustaining project ideas for MakeOpenSource
+A bot for submitting and sustaining project ideas for MakeOpenSource. Now using slash commands!
 
 ## Functionality
-* $help: list of commands, functionality, and syntax
-* $add: add an idea
-* $all: displays all ideas
-* $remove: removes an idea (permissions apply)
+* /add: add an idea
+* /all: displays all ideas
+* /remove: removes an idea (permissions apply)
