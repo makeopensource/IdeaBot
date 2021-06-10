@@ -7,21 +7,21 @@ from discord_slash.utils.manage_commands import create_option
 import datetime
 from dotenv import load_dotenv
 import os
-from pymongo import MongoClient
+import requests
 
 # initializers
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-DB_ADDRESS = os.getenv('DB_ADDRESS')
-DB_NAME = os.getenv('DB_NAME')
-DESCRIPTION = os.getenv('DESCRIPTION')
-COMMAND_PREFIX = os.getenv('COMMAND_PREFIX')
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+IDEA_TOKEN = os.getenv('IDEA_TOKEN')
+BASE_URL = os.getenv('BASE_URL')  # root URL for requests (including '/' at end)
 GUILD_IDS = [int(os.getenv('GUILD_IDS',0))]
+
+head = {'Authorization': 'Token ' + IDEA_TOKEN}
 
 intents = discord.Intents.all()
 intents.members = True
 
-bot = commands.Bot(command_prefix=COMMAND_PREFIX, description=DESCRIPTION,intents=intents)
+bot = commands.Bot(command_prefix="!", description=DESCRIPTION,intents=intents)
 slash = SlashCommand(bot,sync_commands=True)
 
 
@@ -34,42 +34,36 @@ class InvalidAccess(Exception):
     """You do not have write permissions for this idea"""
     pass
 
-def insertIdea(title, description, author, author_id):
-    with MongoClient(DB_ADDRESS) as db_client:
-        idea_db = db_client.DB_NAME
-        ideas = idea_db.ideas
-        new_idea = {
-            'title': title,
-            'description': description,
-            'author': author,
-            'author_id': author_id,
-            'release_date': datetime.datetime.today(),
-            'approved': False,
-        }
-        existing = ideas.find_one({'title': title})
-        if existing is not None and existing['author_id'] != author_id:
-            raise InvalidAccess
-        elif existing is not None:
-            ideas.replace_one({'title': title}, new_idea)
-        else:
-            ideas.insert_one(new_idea)
+def insertIdea(title, description, author):
+    new_idea = {
+        'title': title,
+        'description': description,
+        'author': author,
+        'approved': False
+    }
+    idea = requests.get(
+        f"{BASE_URL}idealab/ideas/?title={title.replace(' ', '%20')}",
+        headers=head
+    ).json()
+    if idea['count'] != 0:
+        raise InvalidAccess
+    # check for updates here
+    else:
+        response = requests.post(url=f'{BASE_URL}idealab/ideas/',
+                                 json=new_idea, headers=head)
+        return(response)
+
 
 def allIdeas():
-    with MongoClient(DB_ADDRESS) as db_client:
-        idea_db = db_client.DB_NAME
-        ideas = idea_db.ideas
-        return str(list(ideas.find({'approved': True})))
+    idea = requests.get(f"{BASE_URL}idealab/ideas/").text
+    return idea
 
-def removeIdea(title, author_id):
-    with MongoClient(DB_ADDRESS) as db_client:
-        idea_db = db_client.DB_NAME
-        ideas = idea_db.ideas
-        existing = ideas.find_one({'title': title})
-        if existing is not None and existing['author_id'] == author_id:
-            ideas.remove({'title': title})
-        else:
-            raise InvalidAccess
 
+def removeIdea(title):
+    response = requests.delete(
+        f"{BASE_URL}idealab/ideas/?title={title.replace(' ', '%20')}",
+        headers=head)
+    return response.status_code
 
 
 ###################################
@@ -77,8 +71,9 @@ def removeIdea(title, author_id):
 ###################################
 
 @bot.event
-async def onReady():
+async def on_ready():
     print('logged in as ' + str(bot.user.name))
+
 
 @slash.slash(name="help", description='Help Command', guild_ids=GUILD_IDS)
 async def help(ctx: SlashContext):
@@ -112,7 +107,7 @@ async def help(ctx: SlashContext):
                 ),
             ])
 async def add(ctx: SlashContext, title: str, description: str, name: str):
-    insertIdea(title, description, name, ctx.author_id)
+    insertIdea(title, description, name)
     await ctx.send(content=(f'{name} sucessfully added "{title}"'))
 
 @slash.slash(name='edit',
@@ -127,7 +122,7 @@ async def add(ctx: SlashContext, title: str, description: str, name: str):
                 ),
             ])
 async def edit(ctx: SlashContext, title: str, description: str, name: str):
-    insertIdea(title, description, name, ctx.author_id)
+    insertIdea(title, description, name)
     await ctx.send(content=(f'{ctx.author.nick} sucessfully edited "{title}"'))
 
 @slash.slash(name='all', description='List All Ideas', guild_ids=GUILD_IDS)
@@ -145,7 +140,10 @@ async def all(ctx: SlashContext):
                 ),
             ])
 async def remove(ctx: SlashContext, title: str):
-    removeIdea(title, ctx.author_id)
-    await ctx.send(content=f'Idea "{title}" removed')
+    response = removeIdea(title)
+    if response == 200:
+        await ctx.send(content=f'Idea "{title}" removed')
+    else:
+        await ctx.send(content='Error' + response)
 
-bot.run(TOKEN)
+bot.run(DISCORD_TOKEN)
